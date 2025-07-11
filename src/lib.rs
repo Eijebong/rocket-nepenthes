@@ -42,21 +42,22 @@ impl<'r, 'o: 'r, T: Responder<'r, 'o>> Responder<'r, 'o> for MaybeNepenthes<T> {
 /// This fairing will check for all incoming requests that the user agent isn't a bad bot's one or
 /// that it doesn't contain `?v=1`. If either of these condition is true, then the request's path
 /// is rewritten to `/nepenthes`.
-pub struct NepenthesFairing;
+pub struct NepenthesFairing {
+    should_nepenthes: fn (&Request) -> bool,
+}
 
-#[rocket::async_trait]
-impl Fairing for NepenthesFairing {
-    fn info(&self) -> Info {
-        Info {
-            name: "Nepenthes",
-            kind: Kind::Request,
+impl NepenthesFairing {
+    pub fn new(should_nepenthes: fn (&Request) -> bool) -> Self {
+        Self {
+            should_nepenthes,
         }
     }
+}
 
-    async fn on_request(&self, r: &mut Request<'_>, _data: &mut Data<'_>) -> () {
+impl Default for NepenthesFairing {
+    fn default() -> Self {
         fn should_nepenthes(r: &Request<'_>) -> bool {
             if r.query_value("v").unwrap_or(Ok("0")) == Ok("1") {
-                log::info!("v param present");
                 return true;
             }
 
@@ -72,7 +73,25 @@ impl Fairing for NepenthesFairing {
             false
         }
 
-        if should_nepenthes(r) {
+        NepenthesFairing {
+            should_nepenthes,
+        }
+    }
+}
+
+#[rocket::async_trait]
+impl Fairing for NepenthesFairing {
+    fn info(&self) -> Info {
+        Info {
+            name: "Nepenthes",
+            kind: Kind::Request,
+        }
+    }
+
+    async fn on_request(&self, r: &mut Request<'_>, _data: &mut Data<'_>) -> () {
+        let should_nepenthes = (self.should_nepenthes)(r);
+
+        if should_nepenthes {
             r.set_uri(Origin::try_from("/nepenthes").unwrap());
         }
     }
@@ -117,3 +136,4 @@ pub fn maybe_block<'a>(word: &'a str, rng: &mut SmallRng) -> Cow<'a, str> {
 
     Cow::Borrowed(word)
 }
+
